@@ -60,7 +60,7 @@ probably a little pedantic since that is what a plain C<Buf> is anyway.
 
 Getting closer to the real world we have C<lz-compress-utf16>.  Despite
 seeing the number 16, this actually only uses 15 bits.  Why?  Because
-that means we have to stay underneath 32,768, so well underneath U+D800
+that means we I<will> stay underneath 32,768, so well underneath U+D800
 (55,296) and as we all know, the code points from U+D800 to U+DFFF are scary
 things called surrogates, which are totally invalid on their own -- a lone one
 is like talking about a single pant or a scissor -- no such thing! -- some
@@ -454,7 +454,9 @@ sub lz-decompress-base64(Str $input --> Str) is export {
 
 sub lz-compress-utf16(Str $input --> Uni) is export {
   return Uni.new without $input;
-  Uni.new(|compress($input, 15).map(* + 32), 32);   # trailing space
+  my @codes = compress($input, 15).map(* + 32);
+  @codes.push: 32;   # trailing space
+  Uni.new(@codes);
 }
 
 sub lz-decompress-utf16($compressed --> Str) is export {
