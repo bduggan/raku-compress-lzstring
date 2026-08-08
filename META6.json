@@ -11,7 +11,7 @@
   "test-depends" : [
     "JSON::Fast"
   ],
-  "description" : "A pure-Raku port of lz-string: compress strings to fit in URLs, cookies, or localStorage",
+  "description" : "Compression using the lz-string algorithm",
   "tags" : [
     "compression",
     "lz-string",
