@@ -1,0 +1,62 @@
+use v6.d;
+use Test;
+use JSON::Fast;
+use Compress::LZString;
+
+# Datasets and known-good compressed fixtures adapted from the canonical
+# lz-string test suite (https://github.com/pieroxy/lz-string, test/data/*):
+# Hello World, Lorem Ipsum, 10,000 digits of pi, a repeated string, tattoo
+# text, and every printable ASCII character. The .bin files are the exact
+# inputs from that repo; fixtures.json holds the expected base64 / encoded-URI
+# outputs, so these tests assert byte-for-byte compatibility with the reference
+# implementation.
+#
+# (The repo's all_utf16 dataset is deliberately omitted: it contains lone
+# surrogates, which a Raku Str cannot represent — see the raw lz-compress() notes.)
+
+my $dir      = $?FILE.IO.parent.add('data');
+my %fixtures = from-json $dir.add('fixtures.json').slurp;
+
+# Mirrors the reference suite's per-dataset checks: consistent (deterministic),
+# alters the data, decompresses, and matches a known-good compressed value.
+for %fixtures.keys.sort -> $name {
+    my $data = $dir.add("$name.bin").slurp(:enc<utf8>);
+    my %fx   = %fixtures{$name};
+
+    for uri => (&lz-compress-uri, &lz-decompress-uri, %fx<uri>),
+        b64 => (&lz-compress-base64, &lz-decompress-base64, %fx<b64>)
+        -> (:key($enc), :value(($comp, $decomp, $expected))) {
+
+        my $got = $comp($data);
+
+        is $got, $comp($data), "$name/$enc: compression is deterministic";
+        isnt $got, $data,          "$name/$enc: output differs from input";
+        is $decomp($got), $data, "$name/$enc: round-trips";
+        is $got, $expected,        "$name/$enc: matches reference known-good value";
+        is $decomp($expected), $data, "$name/$enc: decodes reference known-good value";
+    }
+
+    # The non-Str encodings, over the same datasets. These are what regressed
+    # when compressToUTF16 rendered its packed values into a Str: lorem_ipsum
+    # and pi both pack to sequences containing combining marks, which canonical
+    # reordering transposed.
+    for utf16 => (&lz-compress-utf16, &lz-decompress-utf16),
+        raw   => (&lz-compress,       &lz-decompress),
+        bytes => (&lz-compress-bytes, &lz-decompress-bytes)
+        -> (:key($enc), :value(($comp, $decomp))) {
+
+        my $got = $comp($data);
+        is $decomp($got), $data, "$name/$enc: round-trips";
+        is $decomp($comp($data)).defined, True, "$name/$enc: decodes without loss";
+    }
+}
+
+# Reference-suite null / empty-string semantics.
+is lz-compress-uri(Str), "", 'lz-compress(Str) → ""';
+is lz-decompress-uri(Str), "", 'lz-decompress(Str) → ""';
+isnt lz-compress-uri(""), "", 'lz-compress("") is not empty';
+is lz-decompress-uri(lz-compress-uri("")), "",
+    'lz-compress("") round-trips to ""';
+nok lz-decompress-uri("").defined, 'lz-decompress("") → null';
+
+done-testing;

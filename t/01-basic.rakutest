@@ -1,0 +1,111 @@
+use v6.d;
+use Test;
+use Compress::LZString;
+
+# Inputs exercising ASCII, repetition, CJK, astral (emoji → surrogate pairs),
+# control chars, and combining marks.
+my @inputs =
+    "",
+    "a",
+    "hello world",
+    'The quick brown fox 12345 !@#$',
+    "aaaaaaaaaaaaaaaaaaaaaaaa",
+    "x" x 500,
+    '{"k":"日本語 café 🎉"}',
+    "🎉🎉🎉 mixed 日 ascii",
+    "\n\t\r special",
+    "e\c[0x0301] combining acute",
+;
+
+# Encoded-URI-component round-trips.
+for @inputs -> $s {
+    my $dec = lz-decompress-uri(lz-compress-uri($s)) // "";
+    is $dec, $s, "uri round-trip (len {$s.chars})";
+}
+
+# Base64 round-trips.
+for @inputs -> $s {
+    my $dec = lz-decompress-base64(lz-compress-base64($s)) // "";
+    is $dec, $s, "base64 round-trip (len {$s.chars})";
+}
+
+# UTF-16 round-trips. The packed values need a Uni, not a Str: see below.
+for @inputs -> $s {
+    my $u = lz-compress-utf16($s);
+    isa-ok $u, Uni, "lz-compress-utf16 returns a Uni (len {$s.chars})";
+    is lz-decompress-utf16($u) // "", $s, "utf16 round-trip (len {$s.chars})";
+}
+
+# Raw lz-compress/lz-decompress round-trips via Buf.
+for @inputs -> $s {
+    my $buf = lz-compress($s);
+    isa-ok $buf, Buf, "lz-compress returns a Buf (len {$s.chars})";
+    is lz-decompress($buf) // "", $s, "raw round-trip (len {$s.chars})";
+}
+
+# Uint8Array (big-endian byte pair) round-trips.
+for @inputs -> $s {
+    my $bytes = lz-compress-bytes($s);
+    isa-ok $bytes, Buf, "lz-compress-bytes returns a Buf (len {$s.chars})";
+    is $bytes.elems % 2, 0, "byte output is a whole number of pairs (len {$s.chars})";
+    is lz-decompress-bytes($bytes) // "", $s, "bytes round-trip (len {$s.chars})";
+}
+
+# lz-compress-bytes is exactly lz-compress's 16-bit stream, big-endian.
+for @inputs -> $s {
+    my @units = lz-compress($s).list;
+    my @want  = @units.map({ $_ +> 8, $_ +& 0xFF }).flat;
+    is lz-compress-bytes($s).list, @want,
+        "bytes are the raw stream, big-endian (len {$s.chars})";
+}
+
+# Byte-exact compatibility with reference lz-string 1.4.5. Vectors captured
+# from the canonical JS implementation.
+is lz-compress-uri("hello world"),
+    "BYUwNmD2AEDukCcwBMg", 'uri: "hello world"';
+is lz-compress-base64("hello world"),
+    "BYUwNmD2AEDukCcwBMg=", 'base64: "hello world"';
+
+my $emoji = '{"k":"日本語 café 🎉"}';
+is lz-compress-uri($emoji),
+    "N4Ig1iBcKKemg05oPKiAEBjAhgMwJdMDwbhI-ZAF8g", 'uri: emoji/CJK sample';
+is lz-compress-base64($emoji),
+    "N4Ig1iBcKKemg05oPKiAEBjAhgMwJdMDwbhI/ZAF8g==", 'base64: emoji/CJK sample';
+
+# Regression: the UTF-16 packing (15 bits, offset by 32) emits values in
+# 32..32799, a range covering the combining-mark blocks. Rendering those into a
+# Raku Str applies canonical reordering, which silently transposes packed
+# values and corrupts the stream -- so the encoding has to return a Uni.
+{
+    my @ints = 865, 2093, 56;      # U+0361 ccc=234 before U+082D ccc=230
+    isnt Uni.new(@ints).Str.ords.list, @ints.list,
+        'Str would reorder these codepoints (the hazard being guarded against)';
+    is Uni.new(@ints).list, @ints.list, 'Uni carries them unchanged';
+
+    # An input whose packed form actually trips the reordering.
+    my $s = 'X",0aou';
+    my $u = lz-compress-utf16($s);
+    isnt $u.list, $u.Str.ords.list,
+        'this input really does pack to a Str-hostile sequence';
+    is lz-decompress-utf16($u), $s,
+        'utf16 round-trips input whose packing lands on combining marks';
+
+    # The decoder takes any positional of codepoints, not just Uni. A Str has
+    # to go through .ords, since its .list is one element.
+    is lz-decompress-utf16($u.list.Array), $s, 'utf16 decodes from an Array';
+    is lz-decompress-utf16(Buf[uint32].new($u.list)), $s, 'utf16 decodes from a Buf';
+    is lz-decompress-utf16(lz-compress-utf16("hello world").Str), "hello world",
+        'utf16 decodes from a Str when the packing survives normalisation';
+}
+
+# Empty-string handling. Compressing "" is not a no-op: lz-string emits just
+# the end-of-stream marker ("Q" / "Q==="), and both round-trip back to "".
+is lz-compress-uri(""), "Q", 'lz-compress "" → "Q"';
+is lz-compress-base64(""), "Q===", 'base64 lz-compress "" → "Q==="';
+is lz-decompress-uri("Q"), "", 'uri "Q" → ""';
+is lz-decompress-base64("Q==="), "", 'base64 "Q===" → ""';
+# lz-decompress of "" yields the Str type object (matching lz-string's null).
+nok lz-decompress-uri("").defined, 'uri lz-decompress "" → Nil';
+nok lz-decompress-base64("").defined, 'base64 lz-decompress "" → Nil';
+
+done-testing;

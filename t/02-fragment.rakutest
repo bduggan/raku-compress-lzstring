@@ -1,0 +1,36 @@
+use v6.d;
+use Test;
+use Compress::LZString;
+
+# A neutral app-state blob, compressed by the reference JavaScript lz-string
+# 1.4.5 (compressToEncodedURIComponent / compressToBase64). These fixtures were
+# produced independently of this port, so decoding them proves cross-
+# implementation compatibility on data we control.
+
+my $json =
+    '{"view":"board","filters":{"status":["open","in_progress"],' ~
+    '"assignee":"alex"},"sort":{"by":"updated","dir":"desc"},"page":2}';
+
+my $uri = 'N4Igbglgpg7iBcIBGB7AhgJwCYgDQgDMIAbAFygwGcFRLS1SBXa+AbRBQAcoA7PECDwD6nDCgDmGKJWoBdfGhkRxPKFAQg0xKAA8QAX3yUUGUjWQBPDY05YGUHPiwQMGrNIDGB-JzTj18ABM+kA';
+
+my $b64 = 'N4Igbglgpg7iBcIBGB7AhgJwCYgDQgDMIAbAFygwGcFRLS1SBXa+AbRBQAcoA7PECDwD6nDCgDmGKJWoBdfGhkRxPKFAQg0xKAA8QAX3yUUGUjWQBPDY05YGUHPiwQMGrNIDGB/JzTj18ABM+kA=';
+
+# Decode reference-compressed fragments.
+is lz-decompress-uri($uri), $json,
+    'URI fragment decodes to the exact JSON';
+is lz-decompress-base64($b64), $json,
+    'base64 fragment decodes to the exact JSON';
+
+# Our encoder reproduces the reference bytes.
+is lz-compress-uri($json), $uri, 'URI encode matches reference';
+is lz-compress-base64($json),               $b64, 'base64 encode matches reference';
+
+# Full Raku-only round-trip of the same payload, every encoding.
+is lz-decompress-uri(lz-compress-uri($json)),
+    $json, 'uri round-trip';
+is lz-decompress-base64(lz-compress-base64($json)), $json, 'base64 round-trip';
+is lz-decompress-utf16(lz-compress-utf16($json)),   $json, 'utf16 round-trip';
+is lz-decompress(lz-compress($json)),                       $json, 'raw round-trip';
+is lz-decompress-bytes(lz-compress-bytes($json)),   $json, 'bytes round-trip';
+
+done-testing;

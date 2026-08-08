@@ -1,0 +1,27 @@
+{
+  "name" : "Compress::LZString",
+  "authors" : [
+    "Brian Duggan"
+  ],
+  "provides" : {
+    "Compress::LZString" : "lib/Compress/LZString.rakumod"
+  },
+  "build-depends" : [ ],
+  "depends" : [ ],
+  "test-depends" : [
+    "JSON::Fast"
+  ],
+  "description" : "A pure-Raku port of lz-string: compress strings to fit in URLs, cookies, or localStorage",
+  "tags" : [
+    "compression",
+    "lz-string",
+    "lzw",
+    "url",
+    "base64"
+  ],
+  "license" : "MIT",
+  "raku" : "6.*",
+  "version" : "0.0.1",
+  "auth" : "zef:bduggan",
+  "source-url" : "git://github.com/bduggan/raku-compress-lzstring.git"
+}
